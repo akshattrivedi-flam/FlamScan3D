@@ -36,6 +36,7 @@ class ArPlacementActivity : ComponentActivity() {
 
     override fun onResume() {
         super.onResume()
+        arCoreManager.enableSharedCamera(false)
         arCoreManager.start()
     }
 

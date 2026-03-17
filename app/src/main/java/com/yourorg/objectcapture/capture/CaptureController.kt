@@ -169,14 +169,14 @@ class CaptureController @Inject constructor(
 
     private fun handleFrame(frame: CameraFrame, forceAccept: Boolean) {
         val session = activeSession ?: return
-        val frameUpdate = arCoreManager.update()
-        val pose = frameUpdate?.camera?.pose ?: arCoreManager.latestPose()
-        val trackingState = frameUpdate?.camera?.trackingState ?: if (pose != null) {
+        val arState = arCoreManager.updateState()
+        val pose = arState?.pose ?: arCoreManager.latestPose()
+        val trackingState = arState?.trackingState ?: if (pose != null) {
             com.google.ar.core.TrackingState.TRACKING
         } else {
             com.google.ar.core.TrackingState.PAUSED
         }
-        val depthStats = arCoreManager.latestDepthStats()
+        val depthStats = arState?.depthStats ?: arCoreManager.latestDepthStats()
 
         val poseDelta = poseDeltaTracker.computeDelta(pose)
         val exposureDelta = exposureTracker.delta(frame.lumaMean)

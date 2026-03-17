@@ -3,7 +3,6 @@ package com.yourorg.objectcapture.ui.screens
 import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.camera.view.PreviewView
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -27,7 +26,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.platform.LocalLifecycleOwner
+import android.view.TextureView
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
@@ -46,7 +45,6 @@ import dagger.hilt.android.EntryPointAccessors
 @Composable
 fun CaptureScreen(viewModel: AppViewModel = hiltViewModel()) {
     val context = LocalContext.current
-    val lifecycleOwner = LocalLifecycleOwner.current
     val entryPoint = EntryPointAccessors.fromApplication(context, CaptureEntryPoint::class.java)
     val cameraController: CameraController = entryPoint.cameraController()
     val captureController: CaptureController = entryPoint.captureController()
@@ -109,10 +107,8 @@ fun CaptureScreen(viewModel: AppViewModel = hiltViewModel()) {
     ) {
         AndroidView(
             factory = { ctx ->
-                PreviewView(ctx).also { preview ->
-                    preview.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
-                    preview.scaleType = PreviewView.ScaleType.FILL_CENTER
-                    cameraController.attachPreview(preview, lifecycleOwner)
+                TextureView(ctx).also { preview ->
+                    cameraController.attachPreview(preview)
                 }
             },
             modifier = Modifier.fillMaxSize()

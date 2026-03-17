@@ -54,12 +54,14 @@ class ARPlacementController(
     private val modelViewer = ModelViewer(surfaceView)
     private val choreographer = Choreographer.getInstance()
     private var anchorPose: Pose? = null
+    private val near = 0.1f
+    private val far = 100.0f
 
     private val frameCallback = object : Choreographer.FrameCallback {
         override fun doFrame(frameTimeNanos: Long) {
-            val frame = arCoreManager.update()
-            if (frame != null) {
-                updateCamera(frame)
+            val renderState = arCoreManager.updateForRendering(near, far)
+            if (renderState != null) {
+                updateCamera(renderState.viewMatrix, renderState.projectionMatrix)
                 updateAnchorTransform()
             }
             modelViewer.render(frameTimeNanos)
@@ -100,14 +102,7 @@ class ARPlacementController(
         }
     }
 
-    private fun updateCamera(frame: com.google.ar.core.Frame) {
-        val view = FloatArray(16)
-        val proj = FloatArray(16)
-        val near = 0.1f
-        val far = 100.0f
-        frame.camera.getViewMatrix(view, 0)
-        frame.camera.getProjectionMatrix(proj, 0, near, far)
-
+    private fun updateCamera(view: FloatArray, proj: FloatArray) {
         val aspect = if (surfaceView.height > 0) surfaceView.width.toDouble() / surfaceView.height.toDouble() else 1.0
         val f = proj[5].toDouble()
         val fov = Math.toDegrees(2.0 * atan(1.0 / f))
