@@ -55,13 +55,32 @@ class CaptureController @Inject constructor(
 
     fun startPreview() {
         if (previewStarted) return
-        cameraController.start(null) { frame -> lastFrame = frame }
+        arCoreManager.enableSharedCamera(true)
+        arCoreManager.start()
+        val cameraId = arCoreManager.getCameraId()
+        cameraController.start(
+            sharedCameraId = cameraId,
+            captureSession = null,
+            onFrame = { frame ->
+                lastFrame = frame
+                if (activeSession != null) {
+                    scope.launch {
+                        handleFrame(frame, forceAccept = false)
+                    }
+                }
+            },
+            onError = { error ->
+                previewStarted = false
+                feedbackManager.postError("Camera failed to start: ${error.message ?: "unknown error"}")
+            }
+        )
         previewStarted = true
     }
 
     fun stopPreview() {
         if (!previewStarted) return
         cameraController.stop()
+        arCoreManager.stop()
         previewStarted = false
     }
 
@@ -88,25 +107,22 @@ class CaptureController @Inject constructor(
 
     fun start(session: CaptureSession) {
         activeSession = session
-        // Start sensor-based pose tracking (no camera conflict with CameraX)
+        arCoreManager.enableSharedCamera(true)
         arCoreManager.start()
         syncWriter = VideoSyncWriter(java.io.File(session.metadataDir, "video_sync.csv"))
-        // CameraX already running from startPreview(); rebind with session so AE locks
-        cameraController.start(sharedCameraId = null, captureSession = session) { frame ->
-            lastFrame = frame
-            scope.launch {
-                handleFrame(frame, forceAccept = false)
-            }
+        if (!previewStarted) {
+            startPreview()
         }
+        cameraController.setAutoExposureLocked(true)
     }
 
     fun stop() {
-        cameraController.stop()        // unlocks AE and unbinds camera
+        cameraController.stop()        // also unlocks AE and unbinds camera
         cameraController.stopRecording()
         arCoreManager.stop()
         activeSession = null
         syncWriter = null
-        previewStarted = false         // allow preview to restart when returning to capture screen
+        previewStarted = false
     }
 
     fun captureManual() {
@@ -148,12 +164,9 @@ class CaptureController @Inject constructor(
 
     private fun handleFrame(frame: CameraFrame, forceAccept: Boolean) {
         val session = activeSession ?: return
-        // Pose comes from device rotation-vector sensor (no ARCore session needed)
-        val pose = arCoreManager.latestPose()
-        val trackingState = if (pose != null)
-            com.google.ar.core.TrackingState.TRACKING
-        else
-            com.google.ar.core.TrackingState.PAUSED
+        val frameUpdate = arCoreManager.update()
+        val pose = frameUpdate?.camera?.pose
+        val trackingState = frameUpdate?.camera?.trackingState
         val depthStats = arCoreManager.latestDepthStats()
 
         val poseDelta = poseDeltaTracker.computeDelta(pose)
@@ -210,7 +223,7 @@ class CaptureController @Inject constructor(
             val intrinsics = intrinsicsProvider.getBackCameraIntrinsics()
             val timestamp = frame.timestampMs
 
-            cameraController.saveFrame(session, onSaved = { savedFile ->
+            cameraController.saveFrame(session) { savedFile ->
                 val metadataFile = java.io.File(session.metadataDir, savedFile.name.replace(".jpg", ".json"))
 
                 val metadata = FrameMetadata(
@@ -261,7 +274,7 @@ class CaptureController @Inject constructor(
                 captureMetricsStore.updateOrbitSuggestion(orbitSuggestion)
                 poseDeltaTracker.accept(pose)
                 exposureTracker.accept(frame.lumaMean)
-            })
+            }
         }
     }
 }

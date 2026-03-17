@@ -110,6 +110,8 @@ fun CaptureScreen(viewModel: AppViewModel = hiltViewModel()) {
         AndroidView(
             factory = { ctx ->
                 PreviewView(ctx).also { preview ->
+                    preview.implementationMode = PreviewView.ImplementationMode.COMPATIBLE
+                    preview.scaleType = PreviewView.ScaleType.FILL_CENTER
                     cameraController.attachPreview(preview, lifecycleOwner)
                 }
             },
