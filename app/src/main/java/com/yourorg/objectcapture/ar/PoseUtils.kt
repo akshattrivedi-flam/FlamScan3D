@@ -15,8 +15,13 @@ object PoseUtils {
     )
 
     fun arPoseToColmap(pose: Pose): ColmapPose {
-        val rCw = FloatArray(9)
-        pose.getRotationMatrix(rCw, 0)
+        val matrix = FloatArray(16)
+        pose.toMatrix(matrix, 0)
+        val rCw = floatArrayOf(
+            matrix[0], matrix[1], matrix[2],
+            matrix[4], matrix[5], matrix[6],
+            matrix[8], matrix[9], matrix[10]
+        )
         val tCw = pose.translation
         return colmapFromRotationTranslation(rCw, tCw)
     }

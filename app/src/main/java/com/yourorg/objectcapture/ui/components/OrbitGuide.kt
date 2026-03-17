@@ -12,7 +12,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun OrbitGuide(bins: IntArray) {
+fun OrbitGuide(bins: IntArray, modifier: Modifier = Modifier) {
     if (bins.isEmpty()) return
 
     val max = bins.maxOrNull()?.coerceAtLeast(1) ?: 1
@@ -20,7 +20,7 @@ fun OrbitGuide(bins: IntArray) {
     val gapDegrees = 2f
     val sweep = (360f / segmentCount) - gapDegrees
 
-    Box(modifier = Modifier.padding(16.dp)) {
+    Box(modifier = modifier.padding(16.dp)) {
         Canvas(modifier = Modifier.size(160.dp)) {
             val stroke = Stroke(width = 10f, cap = StrokeCap.Round)
             bins.forEachIndexed { index, count ->

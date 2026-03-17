@@ -81,7 +81,13 @@ class ARPlacementController(
         val buffer = java.nio.ByteBuffer.wrap(file.readBytes())
         when (file.extension.lowercase()) {
             "glb" -> modelViewer.loadModelGlb(buffer)
-            "gltf" -> modelViewer.loadModelGltf(buffer)
+            "gltf" -> {
+                val baseDir = file.parentFile
+                modelViewer.loadModelGltf(buffer) { uri ->
+                    val assetFile = if (baseDir != null) java.io.File(baseDir, uri) else java.io.File(uri)
+                    java.nio.ByteBuffer.wrap(assetFile.readBytes())
+                }
+            }
             else -> return
         }
         modelViewer.transformToUnitCube()

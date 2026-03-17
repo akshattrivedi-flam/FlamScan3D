@@ -61,7 +61,13 @@ class FilamentViewerController(context: Context) {
         val buffer = ByteBuffer.wrap(data)
         when (extension) {
             "glb" -> modelViewer.loadModelGlb(buffer)
-            "gltf" -> modelViewer.loadModelGltf(buffer)
+            "gltf" -> {
+                val baseDir = file.parentFile
+                modelViewer.loadModelGltf(buffer) { uri ->
+                    val assetFile = if (baseDir != null) File(baseDir, uri) else File(uri)
+                    ByteBuffer.wrap(assetFile.readBytes())
+                }
+            }
             else -> return
         }
         modelViewer.transformToUnitCube()

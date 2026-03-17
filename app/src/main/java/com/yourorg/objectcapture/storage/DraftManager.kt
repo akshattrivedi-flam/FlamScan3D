@@ -42,7 +42,7 @@ data class DraftState(
         return if (lastPoseTranslation != null && lastPoseRotation != null &&
             lastPoseTranslation.size == 3 && lastPoseRotation.size == 4
         ) {
-            Pose.makePose(lastPoseTranslation.toFloatArray(), lastPoseRotation.toFloatArray())
+            Pose(lastPoseTranslation.toFloatArray(), lastPoseRotation.toFloatArray())
         } else {
             null
         }
