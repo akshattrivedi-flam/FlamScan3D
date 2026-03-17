@@ -46,9 +46,45 @@ class CaptureController @Inject constructor(
     private var activeSession: CaptureSession? = null
     private var lastFrame: CameraFrame? = null
     private var lastDepthGuidance: String? = null
-    private val guidanceMinDistance = 0.4
-    private val guidanceMaxDistance = 0.8
+    private var guidanceMinDistance = 0.4
+    private var guidanceMaxDistance = 0.8
+    private var markerDistanceMeters: Double? = null
+    private val markerToleranceMeters = 0.15
+    private var previewStarted = false
     private var syncWriter: VideoSyncWriter? = null
+
+    fun startPreview() {
+        if (previewStarted) return
+        cameraController.start(null) { frame -> lastFrame = frame }
+        previewStarted = true
+    }
+
+    fun stopPreview() {
+        if (!previewStarted) return
+        cameraController.stop()
+        previewStarted = false
+    }
+
+    fun setDistanceMarker() {
+        val depth = arCoreManager.latestDepthStats().meanMeters
+        if (depth <= 0.0) {
+            feedbackManager.postWarning("Move into view to set marker distance")
+            return
+        }
+        markerDistanceMeters = depth
+        guidanceMinDistance = (depth - markerToleranceMeters).coerceAtLeast(0.1)
+        guidanceMaxDistance = depth + markerToleranceMeters
+        feedbackManager.postInfo("Marker set: ${"%.2f".format(depth)} m")
+    }
+
+    fun clearDistanceMarker() {
+        markerDistanceMeters = null
+        guidanceMinDistance = 0.4
+        guidanceMaxDistance = 0.8
+        feedbackManager.postInfo("Marker cleared")
+    }
+
+    fun isMarkerSet(): Boolean = markerDistanceMeters != null
 
     fun start(session: CaptureSession) {
         activeSession = session
@@ -136,7 +172,10 @@ class CaptureController @Inject constructor(
             com.yourorg.objectcapture.core.DepthGuidance(
                 distanceMeters = depthMean,
                 inRange = depthGuidance == null && depthMean > 0.0,
-                message = depthGuidance ?: ""
+                message = depthGuidance ?: "",
+                minMeters = guidanceMinDistance,
+                maxMeters = guidanceMaxDistance,
+                markerActive = markerDistanceMeters != null
             )
         )
         if (!forceAccept && depthGuidance != null) {
@@ -168,7 +207,7 @@ class CaptureController @Inject constructor(
             val intrinsics = intrinsicsProvider.getBackCameraIntrinsics()
             val timestamp = frame.timestampMs
 
-            cameraController.saveFrame(session) { savedFile ->
+            cameraController.saveFrame(session, onSaved = { savedFile ->
                 val metadataFile = java.io.File(session.metadataDir, savedFile.name.replace(".jpg", ".json"))
 
                 val metadata = FrameMetadata(
@@ -219,7 +258,7 @@ class CaptureController @Inject constructor(
                 captureMetricsStore.updateOrbitSuggestion(orbitSuggestion)
                 poseDeltaTracker.accept(pose)
                 exposureTracker.accept(frame.lumaMean)
-            }
+            })
         }
     }
 }
