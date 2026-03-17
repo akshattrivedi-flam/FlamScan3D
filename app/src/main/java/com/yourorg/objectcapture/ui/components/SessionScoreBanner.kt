@@ -11,7 +11,7 @@ import androidx.compose.ui.unit.dp
 import com.yourorg.objectcapture.core.SessionScore
 
 @Composable
-fun SessionScoreBanner(score: SessionScore) {
+fun SessionScoreBanner(score: SessionScore, modifier: Modifier = Modifier) {
     if (score.guidance.isBlank()) return
     val color = when {
         score.sessionScore < 0.45 -> Color(0xFFD32F2F)
@@ -22,7 +22,7 @@ fun SessionScoreBanner(score: SessionScore) {
         text = score.guidance,
         style = MaterialTheme.typography.bodyMedium,
         color = Color.White,
-        modifier = Modifier
+        modifier = modifier
             .padding(16.dp)
             .background(color)
             .padding(10.dp)
