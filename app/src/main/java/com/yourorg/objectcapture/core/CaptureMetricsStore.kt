@@ -36,7 +36,10 @@ class CaptureMetricsStore {
 data class DepthGuidance(
     val distanceMeters: Double = 0.0,
     val inRange: Boolean = true,
-    val message: String = ""
+    val message: String = "",
+    val minMeters: Double = 0.4,
+    val maxMeters: Double = 0.8,
+    val markerActive: Boolean = false
 )
 
 data class OrbitSuggestion(

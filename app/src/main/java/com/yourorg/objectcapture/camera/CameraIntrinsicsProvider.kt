@@ -38,12 +38,12 @@ class CameraIntrinsicsProvider @Inject constructor(
         val fy = (focalMm / sensorHeightMm) * size.height
 
         val cx = if (activeArray != null) {
-            (activeArray.exactCenterX() / activeArray.width()) * size.width
+            ((activeArray.exactCenterX() / activeArray.width()) * size.width).toDouble()
         } else {
             size.width / 2.0
         }
         val cy = if (activeArray != null) {
-            (activeArray.exactCenterY() / activeArray.height()) * size.height
+            ((activeArray.exactCenterY() / activeArray.height()) * size.height).toDouble()
         } else {
             size.height / 2.0
         }
