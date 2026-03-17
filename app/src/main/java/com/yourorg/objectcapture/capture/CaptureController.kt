@@ -51,12 +51,17 @@ class CaptureController @Inject constructor(
     private var markerDistanceMeters: Double? = null
     private val markerToleranceMeters = 0.15
     private var previewStarted = false
+    private var warnedSensorFallback = false
     private var syncWriter: VideoSyncWriter? = null
 
     fun startPreview() {
         if (previewStarted) return
         arCoreManager.enableSharedCamera(true)
         arCoreManager.start()
+        if (arCoreManager.isUsingSensorFallback() && !warnedSensorFallback) {
+            feedbackManager.postWarning("ARCore shared camera unavailable — running in sensor-only mode")
+            warnedSensorFallback = true
+        }
         val cameraId = arCoreManager.getCameraId()
         cameraController.start(
             sharedCameraId = cameraId,
@@ -165,8 +170,12 @@ class CaptureController @Inject constructor(
     private fun handleFrame(frame: CameraFrame, forceAccept: Boolean) {
         val session = activeSession ?: return
         val frameUpdate = arCoreManager.update()
-        val pose = frameUpdate?.camera?.pose
-        val trackingState = frameUpdate?.camera?.trackingState
+        val pose = frameUpdate?.camera?.pose ?: arCoreManager.latestPose()
+        val trackingState = frameUpdate?.camera?.trackingState ?: if (pose != null) {
+            com.google.ar.core.TrackingState.TRACKING
+        } else {
+            com.google.ar.core.TrackingState.PAUSED
+        }
         val depthStats = arCoreManager.latestDepthStats()
 
         val poseDelta = poseDeltaTracker.computeDelta(pose)
