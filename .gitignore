@@ -19,3 +19,13 @@ xcuserdata/
 
 **/*.playground/playground.xcworkspace/xcshareddata/*
 !**/*.playground/playground.xcworkspace/xcshareddata/WorkspaceSettings.xcsettings
+
+# Android - build outputs and local config
+.gradle/
+build/
+app/build/
+local.properties
+*.iml
+.idea/
+.vscode/
+captures/

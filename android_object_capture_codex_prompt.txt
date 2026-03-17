@@ -1,0 +1,303 @@
+TITLE: Build a production Android port of the "GuidedCaptureSample" Object Capture iOS sample.
+TARGET: produce a complete Android Studio Kotlin project (app/) implementing guided object capture + ARCore Depth API + CameraX video + COLMAP dataset export + viewer.
+
+INSTRUCTIONS FOR THE CODER (Codex):
+You are an expert Android, ARCore, and photogrammetry engineer. Implement a complete Android app matching feature parity with Apple's GuidedCaptureSample (iOS) plus the following enhancements:
+ - Use ARCore and ARCore Depth API for pose & depth.
+ - Use CameraX for image & video capture.
+ - Save RGB images, a synchronized video, camera intrinsics, and camera extrinsics in COLMAP-compatible format.
+ - Implement automatic frame selection, orbit coverage heatmap, and SLAM/scan quality scoring.
+ - Provide a modular codebase in Kotlin with Jetpack Compose UI, Hilt DI, coroutines, and Filament (or Sceneform) for model viewing.
+
+GOALS:
+1. Produce a working Android Studio project.
+2. Produce tested utilities to convert ARCore camera Poses into COLMAP images.txt entries (quaternion + translation) with the correct conventions.
+3. Produce ColmapExporter that writes cameras.txt, images.txt (format compatible with COLMAP), and optional points3D.txt placeholder.
+4. Provide unit + integration tests, a README with build/run/test instructions, and example capture outputs.
+
+OUTPUT: A zip-ready Android Studio project with:
+ - app module and core modules organized as described below
+ - Gradle setup (Kotlin DSL or Groovy)
+ - Permissions requests and runtime handling (CAMERA, RECORD_AUDIO, WRITE_EXTERNAL_STORAGE where applicable / scoped storage)
+ - Clear TODOs where hardware-specific testing is required.
+
+--- PROJECT LAYOUT (create exactly)
+app/
+  src/main/java/com/yourorg/objectcapture/... (Kotlin)
+core/
+  AppStateManager.kt
+  OrbitManager.kt
+  FeedbackManager.kt
+capture/
+  CaptureController.kt
+  CaptureSession.kt
+  FrameProcessor.kt
+ar/
+  ARCoreManager.kt
+  DepthDistanceController.kt
+  PoseUtils.kt
+camera/
+  CameraController.kt
+  VideoRecorder.kt
+  ImageCaptureController.kt
+storage/
+  CaptureFolderManager.kt
+  MetadataWriter.kt
+colmap/
+  ColmapExporter.kt
+  CameraFileWriter.kt
+  ImageListWriter.kt
+  PoseFileWriter.kt
+ui/
+  screens/
+    CaptureScreen.kt
+    ReviewScreen.kt
+    ReconstructionScreen.kt
+    ViewerScreen.kt
+  components/
+    CaptureOverlay.kt
+    TopControls.kt
+    BottomControls.kt
+    FeedbackBanner.kt
+    OrbitGuide.kt
+model/
+  CaptureState.kt
+  FeedbackMessage.kt
+  OrbitSegment.kt
+di/
+  AppModule.kt (Hilt)
+tests/
+  unit tests for PoseUtils, ColmapExporter, FrameSelector
+
+--- HIGH LEVEL DESIGN & NOTES
+- Use MVVM + AppStateManager for central state transitions. Mirror Apple ModelState: READY, CAPTURING, REVIEWING, PREPARE_RECONSTRUCTION, RECONSTRUCTING, VIEWING_MODEL, COMPLETED, FAILED.
+- All heavy tasks run in coroutines (Dispatchers.IO) and non-blocking flows/Channels provide events to UI.
+- Use ARCore Session for pose and Depth API for per-frame depth images. Use CameraX for image capture at consistent sizes.
+- Implement storage under app-specific Documents/captures/<timestamp> with Images/, Metadata/, Video/, Models/.
+
+--- KEY TECHNICAL DETAILS (must be implemented exactly)
+
+1) ARCore pose → COLMAP conversion (exact math)
+   Background (ARCore):
+     - `Pose` from ARCore gives a rigid transform from local (camera) → world: X_world = R_cw * X_cam + t_cw.
+     - For rendering AR content use `getDisplayOrientedPose()` which is adjusted for display rotation (+X right, +Y up, -Z camera viewing direction). Use this for easier UI mapping.
+   Required (COLMAP expects world→camera):
+     - COLMAP uses a quaternion (QW QX QY QZ) + translation (TX TY TZ) that express the projection from **world → camera**:
+       X_cam = R_wc * X_world + T_wc
+     - Therefore compute:
+         R_cw = rotation matrix from ARCore Pose (camera→world)
+         t_cw = translation vector from ARCore Pose (camera→world)
+         R_wc = transpose(R_cw)          # world -> camera rotation
+         T_wc = - R_wc * t_cw            # world -> camera translation
+     - Convert R_wc to quaternion q = (q_w, q_x, q_y, q_z) using the Hamilton (w-first) convention used by COLMAP (and Eigen). Ensure quaternion sign convention matches COLMAP (w first).
+     - The final COLMAP image line uses: IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID IMAGE_NAME
+   Pseudocode (Kotlin style):
+     // arPose: com.google.ar.core.Pose
+     val r_cw = arPose.rotationMatrix()        // 3x3
+     val t_cw = arPose.translation()           // 3-vector
+     val r_wc = transpose(r_cw)
+     val T_wc = - multiply(r_wc, t_cw)         // 3-vector
+     val q = rotationMatrixToHamiltonQuaternion(r_wc) // q.w, q.x, q.y, q.z
+     // Write out: "${imageId} ${q.w} ${q.x} ${q.y} ${q.z} ${T_wc[0]} ${T_wc[1]} ${T_wc[2]} ${cameraId} ${imageName}"
+   Rationale & checks:
+     - Verify with a simple test: place a known world point P, compute camera reprojection with both ARCore and reconstructed COLMAP camera extrinsic and check pixel projection equality.
+     - Use the COLMAP doc examples for images.txt and cameras.txt formats. (Follow COLMAP text format precisely).
+
+   References: COLMAP format & images.txt spec; ARCore Pose docs. (Use these to validate sign and axis conventions). 
+
+2) COLMAP cameras.txt format & recommended camera model
+   - Use `PINHOLE` or `OPENCV` depending on distortion model. For mobile phone prefer `PINHOLE` if you will calibrate fx,fy,cx,cy; or `OPENCV` if you want to pass radial tangential distortion.
+   - Example cameras.txt line (PINHOLE):  
+       CAMERA_ID PINHOLE WIDTH HEIGHT FX FY CX CY
+   - Write camera intrinsics extracted from CameraX / camera characteristics:
+       fx ≈ focalLengthInPixelsX = (focalLengthMM / sensorWidthMM) * imageWidthPixels
+       fy ≈ focalLengthInPixelsY (similar)
+       principal point cx, cy from sensor active array or use imageWidth/2, imageHeight/2 if unavailable.
+   - For robust results, compute focal length from the Android CameraCharacteristics.LENS_INFO available via Camera2 API (CameraX extension).
+
+3) Frame selection algorithm (auto-frame selection)
+   Objective: pick high-quality and well-spaced frames for COLMAP input.
+   Metrics per frame (compute per captured frame before writing):
+     A. Motion delta (poseDelta):
+        - angleDelta = angle between current and last accepted camera orientation (degrees).
+        - transDelta = Euclidean distance between current and last accepted camera position (meters).
+        - Accept if angleDelta >= 5° OR transDelta >= 0.05 m.
+     B. Sharpness (variance of Laplacian):
+        - Compute Laplacian(var) over grayscale image patch; require var > sharpnessThreshold (e.g., 50).
+     C. Depth consistency:
+        - Compute mean depth in center region from depth image and depth variance across patch. Reject if depth variance too high (blurry depth) or depth outside [0.25, 1.5] m depending on object size.
+     D. Exposure stability:
+        - Compare image histogram mean/median to last accepted; reject if big excursion.
+     E. Tracking quality:
+        - ARCore.getCamera().trackingState must be TRACKING.
+     F. Feature density:
+        - Run ORB/FAST detector or use Android's ImageAnalysis to run a lightweight feature detector; require a minimum number of features (e.g., 200).
+   Frame Score:
+     score = w1*norm(pose_metric) + w2*norm(sharpness) + w3*norm(feature_density) + w4*norm(depth_consistency) + w5*tracking_flag
+     where weights sum to 1; tune empirically (example: w1=0.35,w2=0.25,w3=0.2,w4=0.15,w5=0.05).
+   Acceptance rule:
+     - If score > threshold (e.g., 0.5) and motion spacing satisfied → accept frame and write image+metadata.
+   Implementation:
+     - Implement FrameProcessor.kt that receives per-frame: bitmap, depthImage (float[]), ARCore Pose, timestamp.
+     - Use a small worker thread to compute Laplacian variance using OpenCV (or simple convolution).
+     - Maintain lastAcceptedPose and lastAcceptedTimestamp.
+     - Provide manual capture override (UI button).
+
+4) Orbit coverage heatmap & guidance UI
+   - Define the object center (anchor) upon user tap or plane estimate (tap to set anchor is recommended).
+   - For each accepted frame compute azimuth angle relative to object center:
+       dx = camPos.x - objCenter.x
+       dz = camPos.z - objCenter.z
+       azimuth = atan2(dz, dx) in degrees [−180,180]
+       elevation = asin((camPos.y - objCenter.y) / distance)
+   - Discretize azimuth into N bins (e.g., 36 bins = 10°). Maintain coverage count per bin (increment when frame accepted).
+   - Visual UI: circular ring segmented into bins; color intensity = normalized coverage. Provide recommended next orbit: low, mid, high (elevation bands).
+   - Provide heatmap thresholds: include flips (if user flips object), show missing sectors in red.
+
+5) Depth-guided capture & distance enforcement
+   - Use ARCore Depth API per frame (DepthImage or DepthPointCloud). Compute median/mean depth in a central window (e.g., 100×100 px).
+   - Desired target distance range is configurable; default 0.4m–0.8m for small objects. If outside:
+       - Display overlay: "Move closer" or "Move back" + animated distance bar.
+       - Disable auto-capture until distance within bounds (optional toggle).
+   - Save the measured depth value with each captured frame.
+
+6) Video recording + synchronization
+   - Start CameraX VideoCapture concurrently with image capture. Keep a high-quality mp4 (H.264) at the same resolution as captured images when possible.
+   - Save per-image timestamps (UNIX ms) and video frame timestamps (use MediaMuxer presentation timestamps if needed) to allow alignment. Store a CSV mapping accepted image file name → nearest keyframe/timecode in the video.
+   - Naming: images/frame_000123.jpg ; metadata/frame_000123.json ; video/scan_video.mp4
+
+7) Metadata JSON format (for each saved frame)
+   Save `frame_000123.json`:
+   {
+     "image":"images/frame_000123.jpg",
+     "timestamp_ms": 1680000000000,
+     "pose": {
+       "arcore_pose_matrix": [[...],[...],[...],[...]],
+       "colmap_q": [qw,qx,qy,qz],
+       "colmap_t": [tx,ty,tz]
+     },
+     "intrinsics": {
+       "width": 4032,
+       "height": 3024,
+       "fx": 2800.0,
+       "fy": 2795.0,
+       "cx": 2016.0,
+       "cy": 1512.0,
+       "distortion": [k1,k2,p1,p2,k3] // optional
+     },
+     "depth": {
+       "median_m": 0.62,
+       "mean_m": 0.64,
+       "stddev_m": 0.03
+     },
+     "tracking_state": "TRACKING",
+     "sharpness": 72.25,
+     "feature_count": 342,
+     "frame_score": 0.72
+   }
+
+8) COLMAP exporter (ColmapExporter.kt)
+   - Write cameras.txt (camera models + intrinsics). Use CAMERA_ID=1 if single camera.
+     Example line (PINHOLE):
+       1 PINHOLE 4032 3024 2800.0 2795.0 2016.0 1512.0
+     (Follow COLMAP cameras.txt specification exactly.)
+   - Write images.txt: write header comments then each image line as:
+       IMAGE_ID QW QX QY QZ TX TY TZ CAMERA_ID IMAGE_NAME
+     Follow with a second line per image listing all 2D keypoints (if you want to include keypoints) — optional. COLMAP accepts images.txt with only extrinsics as long as images exist.
+   - Optionally create a `database.db` with entries using colmap's sqlite schema for better integration — but initial version may rely on text export.
+   - Validate written file by running a local COLMAP feature extractor on the exported images with your cameras.txt to ensure it recognizes intrinsics.
+
+9) SLAM / scan quality scoring and guidance
+   - For the entire capture session compute a session score S_session as the weighted mean of per-frame frame_score and orbit coverage completeness:
+       orbit_coverage = (#bins with count >= N_min)/N_bins
+       S_session = 0.7 * mean(frame_score) + 0.3 * orbit_coverage
+   - Provide real-time guidance:
+       - If S_session < 0.45: show "Poor scan — move slower & increase coverage"
+       - If between 0.45–0.7: "Fair — capture more angles"
+       - If >0.7: "Good — ready to reconstruct"
+   - Offer auto-suggestions: "Capture missing sectors at mid-elevation" with highlighted UI bin segments.
+
+10) Reconstruction workflow & UI
+   - After capture, provide a ReviewScreen to inspect images and delete poor frames.
+   - Provide a button "Export for COLMAP" to run ColmapExporter and zip the dataset.
+   - Provide a "Run COLMAP (optional local)" task if user has COLMAP on-device (unlikely); otherwise provide instructions and a shell script `run_colmap.sh` to run on a workstation:
+       colmap feature_extractor --image_path images/ --database_path database.db --image_list_path images.txt --CameraModel PINHOLE --ImageReader...
+       colmap exhaustive_matcher --database_path database.db ...
+       colmap mapper --database_path database.db --image_path images/ --output_path sparse/
+       colmap image_undistorter --image_path images/ --input_path sparse/ --output_path dense/
+       colmap patch_match_stereo --workspace_path dense/ ...
+       colmap stereo_fusion --workspace_path dense/ ...
+       colmap poisson_mesher --input_file fused.ply --output_file mesh.ply
+
+11) Viewer
+   - After reconstruction let the user load `mesh.ply` or `model.obj` using Filament to preview. Provide an AR Quick Look equivalent using ARCore Sceneform to place the model in world.
+
+12) Performance & engineering
+   - Use GPU upload / zero copy where possible (CameraX + ImageReader using YUV->RGB conversion on GPU).
+   - Async file writes with batching; avoid blocking UI thread.
+   - Use efficient JSON writer (Moshi) and avoid huge memory spikes.
+
+--- TESTS & ACCEPTANCE CRITERIA
+1) Pose conversion test (unit test):
+   - Create a synthetic ARCore Pose at origin, rotate 90° yaw, translate (0.5, 0.0, 0.0). Convert to COLMAP q/T and then reconstruct camera center using COLMAP formula `C = -R^T * T` and compare to original camera center from ARCore. Assert difference < 1e-6 (or small).
+2) Integration test:
+   - Run the app on a physical device with ARCore support and A14-equivalent hardware:
+     - Tap to set object anchor.
+     - Walk a 180° semicircle and let auto-capture run.
+     - Verify images/metadata saved and images.txt + cameras.txt generated.
+3) COLMAP validation:
+   - On workstation run `colmap feature_extractor` with generated dataset and confirm features are extracted without crash; then run sparse reconstruction and inspect that camera extrinsics resemble the original poses (visual check).
+4) Performance:
+   - Preview must sustain >= 30 fps on target device during capture and auto-capture.
+5) UI:
+   - Orbit heatmap updates live and indicates missing sectors.
+   - Depth distance overlay appears and blocks auto-capture if distance is outside configured window (unless user disables).
+
+--- IMPLEMENTATION / CODING CONSTRAINTS FOR CODEX
+- Project must be Kotlin-first. Use Jetpack Compose for all UI.
+- Use CameraX for camera access and VideoCapture.
+- Use ARCore 1.XX (latest stable available at time of generation). Use Depth API sample code for converting depth to metric meters.
+- Use Hilt for DI.
+- Use Moshi or kotlinx.serialization for JSON.
+- Provide code comments describing math operations and matrix/quaternion conventions thoroughly.
+- Add an architecture README describing how to run a sample capture and how to import the dataset into COLMAP (exact commands).
+
+--- DELIVERABLES
+1. Full Android Studio project files (Gradle + modules + README + scripts).
+2. `README.md` describing:
+   - build steps
+   - device requirements (ARCore + Depth API support)
+   - sample capture workflow
+   - how to import into COLMAP
+3. `android_object_capture_codex_prompt.txt` (this prompt itself)
+4. Unit tests for PoseUtils & ColmapExporter
+5. Example dataset folder with 8–12 sample images and cameras.txt/images.txt producing successful COLMAP run (if possible).
+6. A CLI script `run_colmap_on_dataset.sh` with the recommended COLMAP sequence to produce a mesh.
+
+--- EXTRA DETAILS FOR ENGINEERING (tips for accurate photogrammetry)
+- Keep exposures consistent: use CameraX auto-exposure lock while capturing for a pass, or record per-image exposure in metadata.
+- Use multi-pass scanning (3 orbits: low/mid/high elevation). After each orbit, present users with quick review and recommendation (flip object or continue).
+- Use careful lens distortion model: for phones with known distortion, use OPENCV model and include distortion coefficients in cameras.txt.
+- Provide "save draft" option so user can resume capture session: store lastAcceptedPose, captured images list, coverage map to disk.
+
+--- NOTES ON COLMAP COORDINATE CHECKS
+- Use the COLMAP documentation for exact format. Use `IMAGE_ID` incremental starting from 1. Use a single CAMERA_ID if intrinsics are constant across images.
+- When in doubt run a small test with 6–10 images and open output in colmap GUI to ensure coordinate handedness is correct.
+
+--- FINAL: Implementation priority & phases (for Codex to follow)
+Phase A (MVP) — 7 days target:
+ - ARCore camera & Pose sampling
+ - CameraX still capture + basic metadata
+ - Pose conversion utilities + ColmapExporter (text files)
+ - Basic Compose UI + manual capture + folder storage
+
+Phase B (Core features) — next 7–10 days:
+ - Auto-frame selection (FrameProcessor)
+ - Depth distance enforcement
+ - Orbit heatmap + orbit logic
+ - Video recording & synchronization
+
+Phase C (Polish & testing) — next 7–10 days:
+ - SLAM score, UI polishing, Filament viewer, export scripts, tests, README.
+
+END OF PROMPT
