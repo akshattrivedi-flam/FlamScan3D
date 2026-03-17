@@ -1,0 +1,19 @@
+# Image list with two lines of data per image:
+# IMAGE_ID, QW, QX, QY, QZ, TX, TY, TZ, CAMERA_ID, IMAGE_NAME
+# Number of images: 8
+1 1 0 0 0 0 0 0 1 Images/frame_000001.png
+
+2 1 0 0 0 0 0 0 1 Images/frame_000002.png
+
+3 1 0 0 0 0 0 0 1 Images/frame_000003.png
+
+4 1 0 0 0 0 0 0 1 Images/frame_000004.png
+
+5 1 0 0 0 0 0 0 1 Images/frame_000005.png
+
+6 1 0 0 0 0 0 0 1 Images/frame_000006.png
+
+7 1 0 0 0 0 0 0 1 Images/frame_000007.png
+
+8 1 0 0 0 0 0 0 1 Images/frame_000008.png
+
