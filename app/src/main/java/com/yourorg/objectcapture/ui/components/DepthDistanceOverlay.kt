@@ -14,16 +14,21 @@ import androidx.compose.ui.unit.dp
 import com.yourorg.objectcapture.core.DepthGuidance
 
 @Composable
-fun DepthDistanceOverlay(guidance: DepthGuidance) {
+fun DepthDistanceOverlay(guidance: DepthGuidance, modifier: Modifier = Modifier) {
     if (guidance.distanceMeters <= 0.0) return
     val normalized = (guidance.distanceMeters / 1.0).coerceIn(0.0, 1.0)
     val barColor = if (guidance.inRange) Color(0xFF2E7D32) else Color(0xFFD32F2F)
+    val rangeText = if (guidance.markerActive) {
+        "Target ${"%.2f".format(guidance.minMeters)}–${"%.2f".format(guidance.maxMeters)} m"
+    } else {
+        "Target 0.40–0.80 m"
+    }
 
     Column(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(16.dp)
-            .background(Color(0x66000000))
+            .background(Color(0x880E1217))
             .padding(12.dp)
     ) {
         Text(
@@ -32,14 +37,14 @@ fun DepthDistanceOverlay(guidance: DepthGuidance) {
             color = Color.White
         )
         LinearProgressIndicator(
-            progress = normalized.toFloat(),
+            progress = { normalized.toFloat() },
             color = barColor,
             modifier = Modifier.fillMaxWidth().padding(top = 8.dp)
         )
         Text(
-            text = "${String.format("%.2f", guidance.distanceMeters)} m",
+            text = "${String.format("%.2f", guidance.distanceMeters)} m · $rangeText",
             style = MaterialTheme.typography.labelSmall,
-            color = Color.White
+            color = Color(0xFFB7C3CC)
         )
     }
 }

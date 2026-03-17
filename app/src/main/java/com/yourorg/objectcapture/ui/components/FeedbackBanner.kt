@@ -12,7 +12,7 @@ import androidx.compose.ui.unit.dp
 import com.yourorg.objectcapture.model.FeedbackMessage
 
 @Composable
-fun FeedbackBanner(messages: List<FeedbackMessage>) {
+fun FeedbackBanner(messages: List<FeedbackMessage>, modifier: Modifier = Modifier) {
     val latest = messages.lastOrNull() ?: return
     val color = when (latest.level) {
         FeedbackMessage.Level.INFO -> Color(0xFF222222)
@@ -20,7 +20,7 @@ fun FeedbackBanner(messages: List<FeedbackMessage>) {
         FeedbackMessage.Level.ERROR -> Color(0xFFD32F2F)
     }
 
-    Box(modifier = Modifier.padding(16.dp).background(color).padding(12.dp)) {
+    Box(modifier = modifier.padding(16.dp).background(color).padding(12.dp)) {
         Text(latest.text, style = MaterialTheme.typography.bodyMedium, color = Color.White)
     }
 }

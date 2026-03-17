@@ -46,17 +46,36 @@ class CaptureController @Inject constructor(
     private var activeSession: CaptureSession? = null
     private var lastFrame: CameraFrame? = null
     private var lastDepthGuidance: String? = null
-    private val guidanceMinDistance = 0.4
-    private val guidanceMaxDistance = 0.8
+    private var guidanceMinDistance = 0.4
+    private var guidanceMaxDistance = 0.8
+    private val markerToleranceMeters = 0.15
+    private var markerDistanceMeters: Double? = null
+    private var previewStarted = false
+    private var isCapturing = false
     private var syncWriter: VideoSyncWriter? = null
+
+    fun startPreview() {
+        if (previewStarted) return
+        cameraController.start(null) { frame ->
+            lastFrame = frame
+        }
+        previewStarted = true
+    }
+
+    fun stopPreview() {
+        if (!previewStarted) return
+        cameraController.stop()
+        previewStarted = false
+    }
 
     fun start(session: CaptureSession) {
         activeSession = session
+        isCapturing = true
+        if (previewStarted) {
+            cameraController.stop()
+        }
         arCoreManager.enableSharedCamera(true)
         arCoreManager.start()
-        cameraController.setAutoExposureLocked(true)
-        cameraController.startRecording(session)
-        syncWriter = VideoSyncWriter(java.io.File(session.metadataDir, "video_sync.csv"))
         val cameraId = arCoreManager.getCameraId()
         cameraController.start(cameraId) { frame ->
             lastFrame = frame
@@ -64,18 +83,24 @@ class CaptureController @Inject constructor(
                 handleFrame(frame, forceAccept = false)
             }
         }
+        cameraController.setAutoExposureLocked(true)
+        cameraController.startRecording(session)
+        syncWriter = VideoSyncWriter(java.io.File(session.metadataDir, "video_sync.csv"))
+        previewStarted = true
     }
 
     fun stop() {
-        cameraController.stop()
+        isCapturing = false
         cameraController.stopRecording()
         cameraController.setAutoExposureLocked(false)
         arCoreManager.stop()
+        stopPreview()
         activeSession = null
         syncWriter = null
     }
 
     fun captureManual() {
+        if (!isCapturing) return
         val frame = lastFrame ?: return
         scope.launch {
             handleFrame(frame, forceAccept = true)
@@ -112,6 +137,27 @@ class CaptureController @Inject constructor(
         }
     }
 
+    fun setDistanceMarker() {
+        val depth = arCoreManager.latestDepthStats().meanMeters
+        if (depth <= 0.0) {
+            feedbackManager.postWarning("Move into view to set marker distance")
+            return
+        }
+        markerDistanceMeters = depth
+        guidanceMinDistance = (depth - markerToleranceMeters).coerceAtLeast(0.1)
+        guidanceMaxDistance = depth + markerToleranceMeters
+        feedbackManager.postInfo("Marker set: ${"%.2f".format(depth)} m")
+    }
+
+    fun clearDistanceMarker() {
+        markerDistanceMeters = null
+        guidanceMinDistance = 0.4
+        guidanceMaxDistance = 0.8
+        feedbackManager.postInfo("Marker cleared")
+    }
+
+    fun isMarkerSet(): Boolean = markerDistanceMeters != null
+
     private fun handleFrame(frame: CameraFrame, forceAccept: Boolean) {
         val session = activeSession ?: return
         val frameUpdate = arCoreManager.update()
@@ -138,7 +184,10 @@ class CaptureController @Inject constructor(
             com.yourorg.objectcapture.core.DepthGuidance(
                 distanceMeters = depthMean,
                 inRange = depthGuidance == null && depthMean > 0.0,
-                message = depthGuidance ?: ""
+                message = depthGuidance ?: "",
+                minMeters = guidanceMinDistance,
+                maxMeters = guidanceMaxDistance,
+                markerActive = markerDistanceMeters != null
             )
         )
         if (!forceAccept && depthGuidance != null) {
