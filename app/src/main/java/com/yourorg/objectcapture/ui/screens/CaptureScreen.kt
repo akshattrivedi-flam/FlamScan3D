@@ -128,7 +128,14 @@ fun CaptureScreen(viewModel: AppViewModel = hiltViewModel()) {
             onClearMarker = { captureController.clearDistanceMarker() }
         )
 
-        OrbitGuide(bins = viewModel.getCoverageBins(), modifier = Modifier.align(Alignment.TopStart))
+        // Only show the orbit ring while actively capturing (avoids the red
+        // full-circle that appears when all bins are zero in READY state)
+        if (captureState == com.yourorg.objectcapture.model.CaptureState.CAPTURING) {
+            OrbitGuide(
+                bins = viewModel.getCoverageBins(),
+                modifier = Modifier.align(Alignment.TopStart)
+            )
+        }
         FeedbackBanner(messages = messages, modifier = Modifier.align(Alignment.TopEnd))
         SessionScoreBanner(score = sessionScore, modifier = Modifier.align(Alignment.TopCenter))
         DepthDistanceOverlay(

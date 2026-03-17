@@ -24,7 +24,8 @@ class OrbitManager(
     }
 
     fun updateCoverage(cameraPosition: Vector3) {
-        val center = objectCenter ?: return
+        // Default to world origin so orbit tracking works without AR hit-testing
+        val center = objectCenter ?: Vector3(0f, 0f, 0f)
         val dx = cameraPosition.x - center.x
         val dz = cameraPosition.z - center.z
         val dy = cameraPosition.y - center.y

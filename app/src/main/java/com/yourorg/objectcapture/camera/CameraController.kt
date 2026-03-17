@@ -105,15 +105,18 @@ class CameraController @Inject constructor(
                 CameraSelector.DEFAULT_BACK_CAMERA
             }
 
-            val videoCapture = videoRecorder.createUseCase()
-
+            // Bind exactly 3 use cases: Preview + ImageCapture + ImageAnalysis.
+            // Adding VideoCapture as a 4th use case exceeds the concurrent-use
+            // limit on most Android devices and causes bindToLifecycle to fail,
+            // resulting in a permanently black camera preview.
             provider.unbindAll()
-            camera = provider.bindToLifecycle(lifecycleOwner, cameraSelector, preview, imageCapture, analysis, videoCapture)
+            camera = provider.bindToLifecycle(
+                lifecycleOwner, cameraSelector, preview, imageCapture, analysis
+            )
 
-            // Lock AE and start recording only after the camera is bound and videoCapture is ready
-            captureSession?.let { session ->
+            // Lock AE after the camera object is valid
+            captureSession?.let {
                 setAutoExposureLocked(true)
-                videoRecorder.startRecording(session)
             }
         }, ContextCompat.getMainExecutor(context))
     }
@@ -148,12 +151,14 @@ class CameraController @Inject constructor(
     }
 
     fun setAutoExposureLocked(locked: Boolean) {
-        val cam = camera ?: return
-        val camera2 = Camera2CameraControl.from(cam.cameraControl)
-        camera2.setCaptureRequestOptions(
-            androidx.camera.camera2.interop.CaptureRequestOptions.Builder()
-                .setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, locked)
-                .build()
-        )
+        try {
+            val cam = camera ?: return
+            val camera2 = Camera2CameraControl.from(cam.cameraControl)
+            camera2.setCaptureRequestOptions(
+                androidx.camera.camera2.interop.CaptureRequestOptions.Builder()
+                    .setCaptureRequestOption(CaptureRequest.CONTROL_AE_LOCK, locked)
+                    .build()
+            )
+        } catch (_: Exception) { /* ignore if camera not ready */ }
     }
 }

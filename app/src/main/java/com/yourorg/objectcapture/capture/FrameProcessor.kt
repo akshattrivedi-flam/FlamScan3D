@@ -111,8 +111,10 @@ class FrameSelector(
         val sharpnessOk = metrics.sharpness >= sharpnessThreshold
         if (!sharpnessOk) reasons.add("Low sharpness")
 
-        val depthOk = metrics.depthMean in depthMinMeters..depthMaxMeters &&
-            metrics.depthStdDev <= maxDepthStdDev
+        // depthMean == 0.0 means no depth sensor available (sensor-only mode) — skip check
+        val depthOk = metrics.depthMean == 0.0 ||
+            (metrics.depthMean in depthMinMeters..depthMaxMeters &&
+                metrics.depthStdDev <= maxDepthStdDev)
         if (!depthOk) reasons.add("Depth out of range or unstable")
 
         val exposureOk = abs(metrics.exposureDelta) <= maxExposureDelta
