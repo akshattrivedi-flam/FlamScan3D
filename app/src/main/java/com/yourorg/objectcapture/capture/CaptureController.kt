@@ -170,7 +170,7 @@ class CaptureController @Inject constructor(
             val intrinsics = intrinsicsProvider.getBackCameraIntrinsics()
             val timestamp = frame.timestampMs
 
-            cameraController.saveFrame(session) { savedFile ->
+            cameraController.saveFrame(session, onSaved = { savedFile ->
                 val metadataFile = java.io.File(session.metadataDir, savedFile.name.replace(".jpg", ".json"))
 
                 val metadata = FrameMetadata(
@@ -221,7 +221,7 @@ class CaptureController @Inject constructor(
                 captureMetricsStore.updateOrbitSuggestion(orbitSuggestion)
                 poseDeltaTracker.accept(pose)
                 exposureTracker.accept(frame.lumaMean)
-            }
+            })
         }
     }
 }
