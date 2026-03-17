@@ -1,5 +1,6 @@
 package com.yourorg.objectcapture.di
 
+import com.yourorg.objectcapture.BuildConfig
 import com.yourorg.objectcapture.ar.DepthDistanceController
 import com.yourorg.objectcapture.capture.FrameProcessor
 import com.yourorg.objectcapture.capture.FeatureDetector
@@ -13,15 +14,21 @@ import com.yourorg.objectcapture.core.OrbitManager
 import com.yourorg.objectcapture.core.SessionScoreManager
 import com.yourorg.objectcapture.core.CaptureMetricsStore
 import com.yourorg.objectcapture.camera.CameraIntrinsicsProvider
+import com.yourorg.objectcapture.network.ApiService
+import com.yourorg.objectcapture.network.JobStatusPoller
+import com.yourorg.objectcapture.network.UploadManager
 import com.yourorg.objectcapture.storage.MetadataWriter
 import com.yourorg.objectcapture.storage.MetadataReader
 import com.yourorg.objectcapture.storage.DraftManager
+import com.squareup.moshi.Moshi
+import com.squareup.moshi.kotlin.reflect.KotlinJsonAdapterFactory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import android.content.Context
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
+import okhttp3.OkHttpClient
 import javax.inject.Singleton
 
 @Module
@@ -88,4 +95,25 @@ object AppModule {
     @Provides
     @Singleton
     fun provideDraftManager(): DraftManager = DraftManager()
+
+    @Provides
+    @Singleton
+    fun provideMoshi(): Moshi = Moshi.Builder().add(KotlinJsonAdapterFactory()).build()
+
+    @Provides
+    @Singleton
+    fun provideOkHttpClient(): OkHttpClient = OkHttpClient.Builder().build()
+
+    @Provides
+    @Singleton
+    fun provideApiService(client: OkHttpClient, moshi: Moshi): ApiService =
+        ApiService(BuildConfig.BASE_URL, client, moshi)
+
+    @Provides
+    @Singleton
+    fun provideUploadManager(apiService: ApiService): UploadManager = UploadManager(apiService)
+
+    @Provides
+    @Singleton
+    fun provideJobStatusPoller(apiService: ApiService): JobStatusPoller = JobStatusPoller(apiService)
 }

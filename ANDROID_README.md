@@ -115,3 +115,25 @@ The built-in viewer uses Filament and supports GLB/GLTF files. OBJ/PLY should be
 - Validate AR placement accuracy and background compositing on target devices.
 - Wire real intrinsics from Camera2 characteristics into COLMAP export.
 - Use actual per-frame pose deltas and feature extraction in `CaptureController`.
+
+## Backend + Web Viewer
+This repo includes a simple FastAPI backend and a Three.js web viewer:
+
+- Backend: `server/`
+- Viewer: `viewer/index.html`
+
+Update the Android base URL in `app/build.gradle.kts`:
+`buildConfigField("String", "BASE_URL", "\"https://server.com\"")`
+
+Run the backend locally:
+```bash
+cd server
+python -m venv .venv
+source .venv/bin/activate
+pip install -r requirements.txt
+export BASE_URL=http://localhost:8000
+uvicorn app:app --host 0.0.0.0 --port 8000
+```
+
+Once reconstruction completes, the app opens:
+`https://server.com/viewer?model_url=...`
